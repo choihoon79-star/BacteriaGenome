@@ -145,49 +145,54 @@ async function findLocalORFs(sequence, totalLen, onProgress) {
     });
   });
 
-  // 2. 실제 서열 기반 ORF 탐색 (Forward Strand 우선)
-  // 단순화를 위해 ATG로 시작하고 TAA, TAG, TGA로 끝나는 300bp 이상의 구간을 찾습니다.
+  // 2. 실제 서열 기반 ORF 탐색 (Forward + Reverse)
   const stops = ['TAA', 'TAG', 'TGA'];
   let count = 0;
   
-  // 성능을 위해 앞부분 1MB 정도만 정밀 탐색하거나 간격을 두고 탐색
-  const scanLimit = Math.min(len, 2000000); 
-  
-  for (let frame = 0; frame < 3; frame++) {
-    for (let i = frame; i < scanLimit - 300; i += 3) {
-      if (seq.substring(i, i + 3) === 'ATG') {
-        // Stop codon 찾기
-        for (let j = i + 3; j < scanLimit - 3; j += 3) {
-          const codon = seq.substring(j, j + 3);
-          if (stops.includes(codon)) {
-            const geneLen = j - i + 3;
-            if (geneLen >= 300 && geneLen < 5000) {
-              count++;
-              detected.push({
-                name: `ORF_${count.toString().padStart(4, '0')}`,
-                fullName: `Predicted Protein (Local Engine)`,
-                type: 'CDS',
-                startPos: i,
-                endPos: j + 3,
-                geneLength: geneLen,
-                expressionLevel: 0.3 + (Math.random() * 0.4),
-                strand: '+',
-                chromosome: 'I'
-              });
-              i = j; // 다음 ORF 탐색을 위해 건너뜀
+  // 탐색 제한: 전체 서열 대상 (최대 15MB)
+  const scanLimit = Math.min(len, 15000000); 
+  const reverseSeq = sequence.split('').reverse().map(b => ({'A':'T','T':'A','G':'C','C':'G','N':'N'}[b] || 'N')).join('');
+
+  const scan = async (s, strand) => {
+    for (let frame = 0; frame < 3; frame++) {
+      for (let i = frame; i < scanLimit - 300; i += 3) {
+        if (s.substring(i, i + 3) === 'ATG') {
+          for (let j = i + 3; j < scanLimit - 3; j += 3) {
+            const codon = s.substring(j, j + 3);
+            if (stops.includes(codon)) {
+              const geneLen = j - i + 3;
+              if (geneLen >= 300 && geneLen < 7000) {
+                count++;
+                const actualStart = strand === '+' ? i : (len - j - 3);
+                const actualEnd   = strand === '+' ? (j + 3) : (len - i);
+                detected.push({
+                  name: `ORF_${count.toString().padStart(4, '0')}`,
+                  fullName: `Predicted Protein (Local ${strand})`,
+                  type: 'CDS',
+                  startPos: actualStart,
+                  endPos: actualEnd,
+                  geneLength: geneLen,
+                  expressionLevel: 0.3 + (Math.random() * 0.4),
+                  strand,
+                  chromosome: 'I'
+                });
+                i = j; 
+              }
+              break;
             }
-            break;
           }
         }
-      }
-      
-      if (count > 1500) break; // 너무 많으면 중단 (시각화 성능 고려)
-      if (i % 30000 === 0 && onProgress) {
-        onProgress(0.5 + (i/scanLimit)*0.4, `유전자 구조 분석 중... (${count}개 발견)`);
-        await new Promise(r => setTimeout(r, 0));
+        if (count > 8000) return;
+        if (i % 100000 === 0 && onProgress) {
+          onProgress(0.5 + (i/scanLimit)*0.2 + (strand === '-' ? 0.2 : 0), `유전자 탐색 중 (${strand})... ${count}개 발견`);
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
     }
-  }
+  };
+
+  await scan(seq, '+');
+  if (count < 8000) await scan(reverseSeq, '-');
 
   detected.sort((a, b) => a.startPos - b.startPos);
   return detected;
