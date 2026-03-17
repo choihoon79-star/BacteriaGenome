@@ -158,6 +158,10 @@
                 <div class="bakta-status-dot"></div>
                 <span class="bakta-status-text">로컬</span>
               </div>
+              <div id="dfast-status-badge" class="status-badge hidden" style="zoom:0.8; margin-left:8px;">
+                <div class="status-dot"></div>
+                <span class="status-text">DFAST</span>
+              </div>
             </div>
             <div class="map-controls">
               <button class="ctrl-btn" id="zoom-in-btn" title="확대">＋</button>
@@ -279,6 +283,18 @@
             <div class="wm-stat-row"><span>내성 유전자</span><span id="wm-resist">-</span></div>
           </div>
           <div id="wm-organism-label" class="wm-organism-label"></div>
+          
+          <!-- NCBI Reference Section -->
+          <div class="ncbi-ref-box" style="margin-top:20px; padding:15px; background:rgba(255,255,255,0.05); border-radius:10px;">
+            <div style="font-size:0.9rem; font-weight:600; margin-bottom:10px; color:#00ffc8;">🧬 NCBI 표준 게놈 비교</div>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="ncbi-search-input" placeholder="Accession (예: GCF_000005845.2)" style="flex:1; padding:8px 12px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#fff; font-size:12px;" />
+              <button id="ncbi-search-btn" class="btn-primary btn-sm" style="padding:8px 15px;">검색</button>
+            </div>
+            <div id="ncbi-info" style="margin-top:10px; font-size:11px; color:#7a87a8; line-height:1.4;">
+              NCBI Datasets API를 통해 표준 데이터를 조회합니다.
+            </div>
+          </div>
         </div>
       </div>
     </section>
