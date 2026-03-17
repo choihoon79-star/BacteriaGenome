@@ -109,7 +109,8 @@ async function runAnalysis(text, fileName) {
       buildLegend(document.getElementById('map-legend'));
     }, 1000);
 
-    // 4. Bakta 정밀 분석 시도 (비동기)
+    // 4. 외부 분석 시도 (DFAST + Bakta)
+    startDfastAnalysis(text, fileName);
     startBaktaAnalysis(text, fileName);
 
   } catch (err) {
@@ -118,51 +119,103 @@ async function runAnalysis(text, fileName) {
   }
 }
 
-async function startBaktaAnalysis(fastaText, name) {
-  let URL = (import.meta.env.VITE_API_URL || '').trim();
-  if (URL.endsWith('/')) URL = URL.slice(0, -1);
-
-  if (!URL) {
-     updateBaktaStatusUI('error', 'API 주소 미설정 (로컬 모드)');
-     return;
+/**
+ * DFAST API (DDBJ) 연동 - Bakta의 강력한 대안
+ */
+async function startDfastAnalysis(fastaText, name) {
+  const dfastStatus = document.getElementById('dfast-status-badge');
+  if (dfastStatus) {
+    dfastStatus.classList.remove('hidden');
+    dfastStatus.className = 'status-badge loading';
+    dfastStatus.querySelector('.status-text').textContent = 'DFAST 분석 요청 중...';
   }
 
-  updateBaktaStatusUI('loading', 'AI 정밀 분석(Bakta) 요청 중...');
-
   try {
+    // DFAST API는 대용량 업로드를 위해 multipart/form-data 사용
     const formData = new FormData();
     formData.append('file', new Blob([fastaText]), 'genome.fasta');
     
-    const resp = await fetch(`${URL}/upload`, { method: 'POST', body: formData });
-    if (!resp.ok) throw new Error('서버 응답 없음');
+    // dfast.ddbj.nig.ac.jp 에는 공용 API가 있으나 속도 제한이 있을 수 있음
+    // 실제 운영 시에는 사용자 토큰이 필요할 수 있습니다.
+    const resp = await fetch('https://dfast.ddbj.nig.ac.jp/dfast/api/jobs', {
+      method: 'POST',
+      body: formData
+    });
     
+    if (!resp.ok) throw new Error('DFAST 서버 응답 없음');
     const { job_id } = await resp.json();
-    let done = false; 
-    let count = 0;
     
-    while (!done && count < 60) {
-      await new Promise(r => setTimeout(r, 20000));
+    let done = false;
+    let count = 0;
+    while (!done && count < 30) {
+      await new Promise(r => setTimeout(r, 15000));
       count++;
-      const sResp = await fetch(`${URL}/status/${job_id}`);
-      const { status } = await sResp.json();
-      updateBaktaStatusUI('loading', `Bakta 정밀 분석 중... (${Math.floor(count/3)}분)`);
-      if (status === 'SUCCESSFUL') done = true;
-      if (status === 'ERROR') throw new Error('Bakta 에러');
+      const sResp = await fetch(`https://dfast.ddbj.nig.ac.jp/dfast/api/jobs/${job_id}`);
+      const job = await sResp.json();
+      if (job.status === 'finished') done = true;
+      if (job.status === 'failed') throw new Error('DFAST 분석 실패');
     }
 
-    const rResp = await fetch(`${URL}/result/${job_id}`);
+    const rResp = await fetch(`https://dfast.ddbj.nig.ac.jp/dfast/api/jobs/${job_id}/results/json`);
     const data = await rResp.json();
     
-    // 결과 반영
-    analysisData.detectedGenes = data.detectedGenes;
-    analysisData.geneCount = data.geneCount;
-    updateBaktaStatusUI('success', 'Bakta 정밀 분석 완료!');
-    renderMap();
-    renderWholeMap();
+    if (data && data.features) {
+      // DFAST 결과를 프로젝트 포맷으로 변환
+      const newGenes = data.features.map(f => ({
+        name: f.gene || f.locus_tag,
+        fullName: f.product || 'Protein',
+        type: 'CDS',
+        startPos: f.location.start,
+        endPos: f.location.end,
+        strand: f.location.strand === 1 ? '+' : '-',
+        geneLength: f.location.end - f.location.start
+      }));
 
+      if (analysisData) {
+        analysisData.detectedGenes = [...analysisData.detectedGenes, ...newGenes];
+        analysisData.geneCount = analysisData.detectedGenes.length;
+        displayQuickStats(analysisData);
+        renderMap();
+        renderWholeMap();
+      }
+      if (dfastStatus) {
+        dfastStatus.className = 'status-badge success';
+        dfastStatus.querySelector('.status-text').textContent = 'DFAST 분석 완료';
+      }
+    }
   } catch (err) {
-    console.error(err);
-    updateBaktaStatusUI('error', '서버 연결 차단 (로컬 분석 결과 사용 중)');
+    if (dfastStatus) {
+      dfastStatus.className = 'status-badge error';
+      dfastStatus.querySelector('.status-text').textContent = 'DFAST 연결 안됨 (로컬 결과 사용)';
+    }
+  }
+}
+
+/**
+ * NCBI Datasets API - 레퍼런스 데이터 가져오기
+ */
+async function fetchNcbiReference(accession) {
+  const infoEl = document.getElementById('ncbi-info');
+  if (infoEl) infoEl.textContent = 'NCBI 데이터 조회 중...';
+
+  try {
+    // NCBI Datasets v2 REST API 사용
+    const resp = await fetch(`https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/${accession}/dataset_report`);
+    const data = await resp.json();
+    
+    if (data.reports && data.reports.length > 0) {
+      const genome = data.reports[0].genome;
+      const refInfo = `
+        🧬 Standard Reference: ${genome.organism.organism_name}
+        - Accession: ${genome.accession}
+        - Assembly Level: ${genome.assembly_info.assembly_level}
+        - Annotation: ${genome.annotation_info?.busco?.complete || 'Available'}
+      `;
+      if (infoEl) infoEl.textContent = refInfo;
+      // 여기서 추가로 GFF/GBK 등을 가져와 지도에 겹쳐 그리는 기능 구현 가능
+    }
+  } catch (err) {
+    if (infoEl) infoEl.textContent = 'NCBI 데이터를 찾을 수 없습니다.';
   }
 }
 
@@ -230,6 +283,12 @@ if (canvas) {
   };
   draw();
 }
+
+// Event Listeners for new features
+document.getElementById('ncbi-search-btn')?.addEventListener('click', () => {
+  const acc = document.getElementById('ncbi-search-input')?.value?.trim();
+  if (acc) fetchNcbiReference(acc);
+});
 
 setStatus('idle', '대기 중');
 ```,Complexity:2,Description:
