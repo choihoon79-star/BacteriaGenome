@@ -228,10 +228,17 @@ async function decompressGzip(file) {
 
   // BC 서브필드 탐색 → BGZF 판별
   function isBGZFHeader(b) {
+    if (b.length < 18) return false;
+    if (b[0] !== 0x1f || b[1] !== 0x8b) return false;
     if (!(b[3] & 0x04)) return false; // FEXTRA 플래그 없음
     const xlen = b[10] | (b[11] << 8);
-    for (let x = 12; x + 4 <= 12 + xlen; ) {
-      if (b[x] === 0x42 && b[x + 1] === 0x43) return true; // BC
+    if (xlen < 6) return false;
+    // XLEN 범위 내에서 BC 서브필드 검색
+    for (let x = 12; x + 4 <= 12 + xlen && x + 6 <= b.length; ) {
+      if (b[x] === 0x42 && b[x + 1] === 0x43) {
+        const slen = b[x + 2] | (b[x + 3] << 8);
+        if (slen === 2) return true; // SI1=B, SI2=C, SLEN=2
+      }
       x += 4 + (b[x + 2] | (b[x + 3] << 8));
     }
     return false;
@@ -289,7 +296,7 @@ async function decompressGzip(file) {
         while (bPos < buf.length && !truncated) {
           // gzip 매직 확인
           if (bPos + 18 > buf.length) { carry = buf.slice(bPos); bPos = buf.length; break; }
-          if (buf[bPos] !== 0x1f || buf[bPos + 1] !== 0x8b) { carry = new Uint8Array(0); break; }
+          if (buf[bPos] !== 0x1f || buf[bPos + 1] !== 0x8b) { carry = new Uint8Array(0); bPos = buf.length; break; }
 
           // BC 서브필드에서 블록 크기 읽기
           let blockSize = null;
@@ -304,16 +311,19 @@ async function decompressGzip(file) {
             }
           }
 
-          if (blockSize === null) { carry = new Uint8Array(0); break; } // BGZF 아님
+          if (blockSize === null || blockSize === 0) { carry = new Uint8Array(0); bPos = buf.length; break; }
           if (bPos + blockSize > buf.length) { carry = buf.slice(bPos); bPos = buf.length; break; }
 
           // 블록 inflate
           try {
             const block  = buf.slice(bPos, bPos + blockSize);
             const result = inflate(block);
-            if (result.length > 0) textResult += decoder.decode(result);
+            if (result.length > 0) {
+               // Use TextDecoder with { stream: true } to handle multi-byte characters at block boundaries
+               textResult += decoder.decode(result, { stream: true });
+            }
           } catch (e) {
-            console.warn('[BGZF] 블록 오류 (건너뜀):', e.message);
+            console.warn('[BGZF] 블록 오류 (해지 시도):', e.message);
           }
 
           bPos += blockSize;
@@ -329,6 +339,8 @@ async function decompressGzip(file) {
         progressLabel.textContent = `📦 BGZF 해제 중 — ${(filePos/1048576).toFixed(0)} / ${fileMB} MB`;
         await new Promise(r => requestAnimationFrame(r));
       }
+      // Final flush for TextDecoder
+      textResult += decoder.decode();
 
     // ════════════════════════════════════════════════════
     // 표준 gzip: DecompressionStream 스트리밍
@@ -339,7 +351,23 @@ async function decompressGzip(file) {
       let   chunkCount   = 0;
 
       while (true) {
-        const { done, value } = await reader.read();
+        let done, value;
+        try {
+          const res = await reader.read();
+          done = res.done;
+          value = res.value;
+        } catch (e) {
+          if (e.message && e.message.toLowerCase().includes('junk found after end')) {
+            console.warn('[OBJETBIO] 압축 해제 중 쓰레기 값(trailing junk) 무시 처리:', e.message);
+            // 압축 해제된 데이터가 이미 있으면 파일이 끝난 것으로 간주
+            if (textResult.length > 0) {
+              truncated = true;
+              break;
+            }
+          }
+          throw e; // 예상치 못한 에러
+        }
+        
         if (done) break;
         textResult += decoder.decode(value, { stream: !done });
         chunkCount++;
