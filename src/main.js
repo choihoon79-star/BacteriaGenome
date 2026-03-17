@@ -559,7 +559,8 @@ async function runAnalysis(text) {
  * Bakta API 백엔드 연동 및 정밀 분석 실행 (비동기 폴링)
  */
 async function startBaktaAnalysis(fastaText, strainName) {
-  const BACKEND_URL = 'http://localhost:8000';
+  // 배포 환경 대응: VITE_API_URL 환경 변수가 있으면 사용하고, 없으면 로컬 사용
+  const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const statusEl = document.getElementById('status-text');
   
   // UI 상태 초기화: 분석 중
