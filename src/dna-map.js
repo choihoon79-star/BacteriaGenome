@@ -683,49 +683,21 @@ export function renderWholeGenomeMap(svgEl, data) {
      R1: CDS (+) 정방향
      ═════════════════════════════════════════ */
   const cdsG_plus = root.append('g');
-  const cdsPlus = genes.filter(g => g.strand === '+' &&
-    (g.type === 'essential' || g.type === 'metabolism'  ||
-     g.type === 'mobile_element' || g.type === 'housekeeping'));
+  const cdsPlus = genes.filter(g => g.strand === '+' && (g.type === 'essential' || g.type === 'metabolism' || g.type === 'mobile_element' || g.type === 'housekeeping' || g.type === 'CDS'));
   cdsPlus.forEach(g => {
     const sa = posAngle(g.startPos), ea = posAngle(g.endPos);
     drawCDSBlock(cdsG_plus, sa, ea, R.cdsA_o, R.cdsA_i, '#1a3a8f', '+');
   });
-  if (cdsPlus.length < 5) {
-    const N = 130;
-    const seed = 42;
-    for (let i = 0; i < N; i++) {
-      const frac  = i / N;
-      const noise = Math.sin(i * 7.3 + seed) * 0.004;
-      const start = (frac + noise) * totalLen;
-      const len   = totalLen / N * (0.25 + Math.abs(Math.sin(i * 1.7)) * 0.65);
-      const sa = posAngle(start), ea = posAngle(start + len);
-      drawCDSBlock(cdsG_plus, sa, ea, R.cdsA_o, R.cdsA_i, '#1a3a8f', '+');
-    }
-  }
 
   /* ═════════════════════════════════════════
      R2: CDS (-) 역방향
      ═════════════════════════════════════════ */
   const cdsG_minus = root.append('g');
-  const cdsMinus = genes.filter(g => g.strand === '-' &&
-    (g.type === 'essential' || g.type === 'metabolism'  ||
-     g.type === 'mobile_element' || g.type === 'housekeeping'));
+  const cdsMinus = genes.filter(g => g.strand === '-' && (g.type === 'essential' || g.type === 'metabolism' || g.type === 'mobile_element' || g.type === 'housekeeping' || g.type === 'CDS'));
   cdsMinus.forEach(g => {
     const sa = posAngle(g.startPos), ea = posAngle(g.endPos);
     drawCDSBlock(cdsG_minus, sa, ea, R.cdsB_o, R.cdsB_i, '#1e40af', '-');
   });
-  if (cdsMinus.length < 5) {
-    const N = 110;
-    const seed = 99;
-    for (let i = 0; i < N; i++) {
-      const frac  = (i + 0.45) / N;
-      const noise = Math.sin(i * 5.1 + seed) * 0.003;
-      const start = (frac + noise) * totalLen;
-      const len   = totalLen / N * (0.2 + Math.abs(Math.sin(i * 2.3)) * 0.55);
-      const sa = posAngle(start), ea = posAngle(start + len);
-      drawCDSBlock(cdsG_minus, sa, ea, R.cdsB_o, R.cdsB_i, '#1e40af', '-');
-    }
-  }
 
   /* ═════════════════════════════════════════
      R3: tRNA (청록색 줄기)
