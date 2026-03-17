@@ -1,0 +1,18 @@
+{
+  "name": "dna-sequence-analyzer",
+  "version": "1.0.0",
+  "description": "Interactive DNA Sequence Analyzer with genome maps and expression data",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "pako": "^2.1.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

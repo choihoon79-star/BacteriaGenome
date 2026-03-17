@@ -1,0 +1,50 @@
+/**
+ * DNA Analyzer — Main Application Entry Point
+ * 앱 전체 상태 관리 및 섹션 네비게이션
+ */
+
+import './style.css';
+import { parseDNAFile, analyzeSequences, analyzeSequencesAsync, generateSampleGenome } from './analyzer.js';
+import {
+  initDNAMap, switchToLinear, switchToCircular,
+  buildLegend,
+  buildBaseCompositionChart, buildGeneTypeChart,
+  buildExpressionChart, buildDensityChart
+} from './dna-map.js';
+import { initStrainSection } from './strain-ui.js';
+
+// ─── App State ───
+let analysisData = null;
+let currentSection = 'upload';
+let currentView = 'circular';
+
+// ─── DOM References ───
+const uploadZone   = document.getElementById('upload-zone');
+const fileInput    = document.getElementById('file-input');
+const uploadBtn    = document.getElementById('upload-btn');
+const sampleBtn    = document.getElementById('sample-btn');
+const progressContainer = document.getElementById('progress-container');
+const progressBar  = document.getElementById('progress-bar');
+const progressPct  = document.getElementById('progress-pct');
+const progressLabel= document.getElementById('progress-label');
+const quickStats   = document.getElementById('quick-stats');
+const gotoMapContainer = document.getElementById('goto-map-container');
+const gotoMapBtn   = document.getElementById('goto-map-btn');
+
+const statusDot  = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+
+const navLinks = document.querySelectorAll('.nav-link');
+const sections = document.querySelectorAll('.section');
+
+const svgEl     = document.getElementById('dna-map-svg');
+const infoPlaceholder = document.getElementById('info-placeholder');
+const geneDetail = document.getElementById('gene-detail');
+const mapLegend  = document.getElementById('map-legend');
+
+const viewModeSelect = document.getElementById('view-mode-select');
+const zoomInBtn  = document.getElementById('zoom-in-btn');
+const zoomOutBtn = document.getElementById('zoom-out-btn');
+const resetBtn   = document.getElementById('reset-btn');
+
+const modalOverlay = document.getElementById('modal-overlay');

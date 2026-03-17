@@ -1,0 +1,60 @@
+
+function isValidDNA(str) {
+  const cleaned = str.replace(/\s/g, '');
+  return /^[ACGTNRYSWKMBDHVacgtnryswkmbdhv]+$/.test(cleaned) && cleaned.length > 5;
+}
+
+/**
+ * 박테리아 지놈 종합 분석 (비동기 버전 — 대용량 대응)
+ */
+export async function analyzeSequencesAsync(sequences, onProgress) {
+  if (!sequences || sequences.length === 0) return null;
+
+  const counts = { A: 0, T: 0, G: 0, C: 0, N: 0 };
+  let currentTotalLen = 0;
+  const finalTargetLen = sequences.reduce((sum, s) => sum + s.sequence.length, 0) || 1;
+  
+  // 1. 염기 구성 계산 (비동기 청크 처리)
+  const CHUNK_SIZE = 1000000; // 1MB 단위
+  let currentChunkBases = 0;
+
+  for (let i = 0; i < sequences.length; i++) {
+    const seq = sequences[i].sequence;
+
+    for (let j = 0; j < seq.length; j++) {
+      const base = seq[j];
+      if (counts[base] !== undefined) counts[base]++;
+      else counts.N++;
+      
+      currentTotalLen++;
+      currentChunkBases++;
+      
+      if (currentChunkBases >= CHUNK_SIZE) {
+        const pct = currentTotalLen / finalTargetLen;
+        if (onProgress) onProgress(pct * 0.5, `염기 분석 중... (${(currentTotalLen / 1000000).toFixed(1)} / ${(finalTargetLen / 1000000).toFixed(1)} Mb)`);
+        await new Promise(r => setTimeout(r, 0));
+        currentChunkBases = 0;
+      }
+    }
+  }
+
+  if (finalTargetLen === 0) return null;
+
+  const gc = ((counts.G + counts.C) / finalTargetLen * 100);
+  if (onProgress) onProgress(0.6, '분류군 추정 및 유전자 탐색 중...');
+
+  // 박테리아 종 추정 (GC% 기반)
+  const estimatedOrganism = estimateOrganism(gc);
+
+  // ORF 수 추정 (박테리아는 약 1 gene/1kb)
+  const estimatedORFs = Math.round(finalTargetLen / 950);
+
+  // 이동성 유전 인자 비율 추정
+  const nRatio = counts.N / finalTargetLen;
+  const mgeRisk = nRatio > 0.05 ? 'ALERT' : gc < 40 || gc > 70 ? '추정됨' : '낮음';
+
+  // 유전자 탐지 (첫 번째 긴 서열 또는 병합 서열 일부를 샘플링)
+  const sampleBase = sequences[0]?.sequence.substring(0, 100000) || '';
+  const detectedGenes = detectGeneMarkers(sampleBase, finalTargetLen);
+
+  if (onProgress) onProgress(1.0, '분석 완료');

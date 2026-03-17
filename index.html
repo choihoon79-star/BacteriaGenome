@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bacterial Genome Analyzer | 박테리아 지놈 분석 플랫폼</title>
+  <meta name="description" content="박테리아 지놈 전문 분석 플랫폼 - FASTA/FASTQ/GenBank 형식의 박테리아 게놈 데이터를 업로드하고 항생제 내성, 독성 인자, rRNA 오페론 등을 시각화하세요." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <!-- Background canvas for DNA helix animation -->
+  <canvas id="bg-canvas"></canvas>
+
+  <!-- Navigation -->
+  <nav id="main-nav">
+    <div class="nav-logo">
+      <img src="/objetbio_logo.png" alt="OBJETBIO" onerror="this.style.display='none';document.querySelector('.logo-text').style.display='flex'" />
+      <span class="logo-text" style="display:none">🦠 <span>OBJET<span class="logo-accent">BIO</span></span></span>
+    </div>
+    <div class="nav-links">
+      <a href="#upload" class="nav-link active" id="nav-upload">데이터 업로드</a>
+      <a href="#map" class="nav-link" id="nav-map">DNA 지도</a>
+      <a href="#wholemap" class="nav-link" id="nav-wholemap">🌐 홀지놈 맵</a>
+      <a href="#stats" class="nav-link" id="nav-stats">분석 통계</a>
+      <a href="#notes" class="nav-link" id="nav-notes">📝 연구노트</a>
+      <a href="#strains" class="nav-link nav-link-strain" id="nav-strains">🧫 균주 관리</a>
+    </div>
+    <div class="nav-status">
+      <span class="status-dot" id="status-dot"></span>
+      <span class="status-text" id="status-text">대기 중</span>
+    </div>
+  </nav>
+
+  <!-- Main Application -->
+  <main id="app">
+
+    <!-- SECTION 1: Upload Dashboard -->
+    <section id="upload-section" class="section active">
+      <div class="section-header">
+        <h1>박테리아 지놈 분석 플랫폼</h1>
+        <p class="section-subtitle">FASTA, FASTQ, VCF, TXT 형식의 DNA 로우데이터를 업로드하여<br/>인터랙티브 DNA 지도와 유전자 발현 정보를 확인하세요.</p>
+      </div>
+
+      <!-- Upload Zone -->
+      <div class="upload-container">
+        <div class="upload-zone" id="upload-zone">
+          <div class="upload-icon-wrapper">
+            <div class="upload-dna-icon">🧬</div>
+          </div>
+          <h2 class="upload-title">박테리아 지놈 파일 업로드</h2>
+          <p class="upload-subtitle">또는 클릭하여 파일 선택</p>
+          <p class="upload-formats">지원: .fasta · .fastq · .fastq.gz · .ab1 (Sanger) · .gbk (GenBank) · .txt</p>
+          <input type="file" id="file-input" accept=".fasta,.fastq,.fastq.gz,.fasta.gz,.gz,.ab1,.abi,.vcf,.txt" hidden />
+          <button class="btn-primary" id="upload-btn">
+            <span>파일 선택하기</span>
+          </button>
+        </div>
+
+        <!-- Sample Data Button -->
+        <div class="sample-data-container">
+          <p>로우데이터가 없으신가요?</p>
+          <button class="btn-secondary" id="sample-btn">E. coli K-12 샘플 데이터로 시작하기</button>
+        </div>
+
+        <!-- 균주 메타정보 입력 -->
+        <div class="upload-meta-form">
+          <div class="meta-form-title">🧬 균주 정보 <span class="meta-form-hint">(선택 · 균주 관리 DB에 자동 저장)</span></div>
+          <div class="meta-form-row">
+            <div class="meta-input-group">
+              <label for="meta-strain-name">균주명</label>
+              <input type="text" id="meta-strain-name" placeholder="예: Bacillus subtilis KCTC-001" />
+            </div>
+            <div class="meta-input-group">
+              <label for="meta-researcher">담당 연구자</label>
+              <input type="text" id="meta-researcher" placeholder="예: 홍길동" />
+            </div>
+            <div class="meta-input-group">
+              <label for="meta-location">채집 장소</label>
+              <input type="text" id="meta-location" placeholder="예: 토양, 해수 (선택)" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-container hidden" id="progress-container">
+        <div class="progress-info">
+          <span id="progress-label">파일 분석 중...</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="progress-bar-wrapper">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-steps" id="progress-steps">
+          <div class="step" id="step-read">
+            <span class="step-icon">📂</span>
+            <span class="step-label">파일 읽기</span>
+          </div>
+          <div class="step" id="step-decompress">
+            <span class="step-icon">📦</span>
+            <span class="step-label">압축 해제</span>
+          </div>
+          <div class="step" id="step-parse">
+            <span class="step-icon">🔬</span>
+            <span class="step-label">서열 파싱</span>
+          </div>
+          <div class="step" id="step-analyze">
+            <span class="step-icon">🧬</span>
+            <span class="step-label">유전자 분석</span>
+          </div>
+          <div class="step" id="step-map">
+            <span class="step-icon">🗺️</span>
+            <span class="step-label">지도 생성</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Stats (hidden until analysis) -->
+      <div class="quick-stats hidden" id="quick-stats">
+        <div class="stat-card" id="stat-length">
+          <div class="stat-value" id="stat-length-val">-</div>
+          <div class="stat-label">전체 염기 쌍 (bp)</div>
+        </div>
+        <div class="stat-card" id="stat-gc">
+          <div class="stat-value" id="stat-gc-val">-</div>
+          <div class="stat-label">GC 함량 (%)</div>
+        </div>
+        <div class="stat-card" id="stat-genes">
+          <div class="stat-value" id="stat-genes-val">-</div>
+          <div class="stat-label">검출된 유전자</div>
+        </div>
+        <div class="stat-card" id="stat-risk">
+          <div class="stat-value" id="stat-risk-val">-</div>
+          <div class="stat-label">변이 위험도</div>
+        </div>
+      </div>
+
+      <!-- CTA to Map -->
+      <div class="hidden" id="goto-map-container">
+        <button class="btn-primary btn-large glow-btn" id="goto-map-btn">
+          🗺️ DNA 지도 보기
+        </button>
+      </div>
+    </section>
+
+    <!-- SECTION 2: DNA Map -->
+    <section id="map-section" class="section">
+      <div class="map-layout">
+        <!-- Map Panel -->
+        <div class="map-panel">
+          <div class="panel-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <h2>인터랙티브 DNA 지도</h2>
+              <div id="bakta-status-badge-map" class="bakta-badge-container" style="zoom:0.8">
+                <div class="bakta-status-dot"></div>
+                <span class="bakta-status-text">로컬</span>
+              </div>
+            </div>
+            <div class="map-controls">
+              <button class="ctrl-btn" id="zoom-in-btn" title="확대">＋</button>
+              <button class="ctrl-btn" id="zoom-out-btn" title="축소">－</button>
+              <button class="ctrl-btn" id="reset-btn" title="초기화">↺</button>
+              <select class="ctrl-select" id="view-mode-select">
+                <option value="circular">원형 보기</option>
+                <option value="linear">선형 보기</option>
+              </select>
+            </div>
+          </div>
+          <div class="map-canvas-wrapper">
+            <svg id="dna-map-svg"></svg>
+            <div class="map-tooltip hidden" id="map-tooltip"></div>
+          </div>
+          <div class="map-legend" id="map-legend"></div>
+        </div>
+
+        <!-- Info Panel -->
+        <div class="info-panel" id="info-panel">
+          <div class="info-placeholder" id="info-placeholder">
+            <div class="placeholder-icon">👆</div>
+            <p>DNA 지도의 유전자 영역을 클릭하시면<br/>상세 발현 정보를 확인할 수 있습니다.</p>
+          </div>
+          <div class="gene-detail hidden" id="gene-detail">
+            <div class="gene-header">
+              <div class="gene-badge" id="gene-badge"></div>
+              <div>
+                <h3 id="gene-name">유전자명</h3>
+                <span class="gene-type-tag" id="gene-type">타입</span>
+              </div>
+            </div>
+            <p class="gene-desc" id="gene-desc"></p>
+            <div class="gene-stats-grid">
+              <div class="g-stat">
+                <div class="g-stat-label">시작 위치</div>
+                <div class="g-stat-value" id="gene-start">-</div>
+              </div>
+              <div class="g-stat">
+                <div class="g-stat-label">종료 위치</div>
+                <div class="g-stat-value" id="gene-end">-</div>
+              </div>
+              <div class="g-stat">
+                <div class="g-stat-label">길이 (bp)</div>
+                <div class="g-stat-value" id="gene-length">-</div>
+              </div>
+              <div class="g-stat">
+                <div class="g-stat-label">발현 수준</div>
+                <div class="g-stat-value" id="gene-expression">-</div>
+              </div>
+            </div>
+            <div class="expression-bar-wrapper">
+              <div class="expression-label">
+                <span>발현 강도</span>
+                <span id="expr-pct">0%</span>
+              </div>
+              <div class="expression-bar-track">
+                <div class="expression-bar-fill" id="expr-bar-fill"></div>
+              </div>
+            </div>
+            <div class="rna-section">
+              <h4>RNA 전사 / 번역 정보</h4>
+              <div class="rna-info" id="rna-info"></div>
+            </div>
+            <div class="rna-section">
+              <h4>🦠 서식 박테리아</h4>
+              <div class="rna-info" id="organism-info" style="color:#00ffc8"></div>
+            </div>
+            <button class="btn-primary btn-sm" id="detail-page-btn">📋 상세 페이지 열기</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2.5: Whole-Genome Circular Map -->
+    <section id="wholemap-section" class="section">
+      <div class="wholemap-layout">
+        <!-- 왼쪽: SVG 캔버스 -->
+        <div class="wholemap-canvas-col">
+          <div class="panel-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <h2>🌐 홀지놈 서큘러 맵</h2>
+              <div id="bakta-status-badge-wm" class="bakta-badge-container" style="zoom:0.8">
+                <div class="bakta-status-dot"></div>
+                <span class="bakta-status-text">로컬 분석</span>
+              </div>
+            </div>
+            <div class="map-controls">
+              <button class="ctrl-btn" id="wm-zoom-in">＋</button>
+              <button class="ctrl-btn" id="wm-zoom-out">－</button>
+              <button class="ctrl-btn" id="wm-reset">↺</button>
+              <button class="btn-secondary sm" id="wm-export-svg">💾 SVG</button>
+              <button class="btn-secondary sm" id="wm-export-png">🖼️ PNG</button>
+              <button class="btn-secondary sm" id="wm-export-jpg">🖼️ JPG</button>
+            </div>
+          </div>
+          <div class="wholemap-svg-wrapper">
+            <svg id="wholemap-svg" style="width:100%;height:100%"></svg>
+          </div>
+        </div>
+        <!-- 오른쪽: 범례+설명 -->
+        <div class="wholemap-legend-col">
+          <div class="wholemap-legend-box">
+            <div class="wm-legend-title">링 구성 (바깥→안)</div>
+            <div class="wm-legend-item"><span class="wm-dot cds-plus"></span> Ring 1 · CDS (+) 정방향</div>
+            <div class="wm-legend-item"><span class="wm-dot cds-minus"></span> Ring 2 · CDS (−) 역방향</div>
+            <div class="wm-legend-item"><span class="wm-dot trna"></span> Ring 3 · tRNA</div>
+            <div class="wm-legend-item"><span class="wm-dot rrna"></span> Ring 4 · rRNA</div>
+            <div class="wm-legend-item"><span class="wm-dot resist"></span> Ring 4+ · 항생제 내성</div>
+            <div class="wm-legend-item"><span class="wm-dot backbone"></span> Ring 5 · Backbone</div>
+            <div class="wm-legend-item"><span class="wm-dot gc-content"></span> Ring 6 · GC Content</div>
+            <div class="wm-legend-item"><span class="wm-dot gc-plus"></span> Ring 7 · GC Skew+</div>
+            <div class="wm-legend-item"><span class="wm-dot gc-minus"></span> Ring 7 · GC Skew−</div>
+          </div>
+          <div class="wholemap-stats-box" id="wm-genome-stats">
+            <div class="wm-stat-row"><span>게놈 크기</span><span id="wm-size">-</span></div>
+            <div class="wm-stat-row"><span>GC 함량</span><span id="wm-gc">-</span></div>
+            <div class="wm-stat-row"><span>CDS 수</span><span id="wm-cds">-</span></div>
+            <div class="wm-stat-row"><span>내성 유전자</span><span id="wm-resist">-</span></div>
+          </div>
+          <div id="wm-organism-label" class="wm-organism-label"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: Stats -->
+    <section id="stats-section" class="section">
+      <div class="section-header">
+        <h2>분석 통계 대시보드</h2>
+        <p class="section-subtitle">업로드된 게놈 데이터의 종합 분석 결과입니다.</p>
+      </div>
+      <div class="stats-grid">
+        <div class="stats-card large">
+          <h3>염기 서열 구성 비율</h3>
+          <div id="base-composition-chart"></div>
+        </div>
+        <div class="stats-card">
+          <h3>유전자 유형 분포</h3>
+          <div id="gene-type-chart"></div>
+        </div>
+        <div class="stats-card">
+          <h3>발현 수준 분포</h3>
+          <div id="expression-chart"></div>
+        </div>
+        <div class="stats-card large">
+          <h3>염색체별 유전자 밀도</h3>
+          <div id="density-chart"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- SECTION 4: 균주 관리 (Strain Management) -->
+  <section id="strains-section" class="section strain-section">
+
+    <!-- 균주 라이브러리 (목록) -->
+    <div id="strain-library">
+      <div class="strain-lib-header">
+        <div>
+          <h2>🧫 균주 라이브러리</h2>
+          <p class="section-subtitle" style="text-align:left;margin-bottom:0">발견한 균주를 등록하고 KCTC 기탁, 실험 기록을 시간순으로 관리합니다.</p>
+        </div>
+        <div class="strain-lib-actions">
+          <input type="text" class="search-input" id="strain-search" placeholder="균주명, 기탁 번호, 분류군 검색..." />
+          <button class="btn-primary" id="new-strain-btn">+ 새 균주 등록</button>
+        </div>
+      </div>
+      <div class="strain-grid" id="strain-grid"></div>
+      <div class="empty-state hidden" id="strain-empty">
+        <div style="font-size:3rem">🦠</div>
+        <p>등록된 균주가 없습니다.</p>
+        <button class="btn-primary" id="new-strain-btn-2">+ 첫 번째 균주 등록하기</button>
+      </div>
+    </div>
+
+    <!-- 균주 상세 페이지 -->
+    <div id="strain-detail" class="hidden">
+      <div id="detail-header" class="detail-header"></div>
+      <div class="detail-tab-bar" id="detail-tab-bar"></div>
+      <div class="detail-content" id="detail-content"></div>
+    </div>
+
+  </section>
+
+  <!-- 기존 main 태거 -->
+  <main id="app" style="display:none"></main>
+
+  <!-- Gene Detail Modal -->
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal" id="gene-modal">
+      <button class="modal-close" id="modal-close">✕</button>
+      <div class="modal-content" id="modal-content"></div>
+    </div>
+  </div>
+
+  <!-- 균주 등록 모달 -->
+  <div class="modal-overlay hidden" id="strain-register-modal">
+    <div class="modal" style="max-width:760px">
+      <button class="modal-close" id="reg-cancel-btn">✕</button>
+      <h3 style="font-size:1.2rem;font-weight:700;margin-bottom:1.5rem">🧫 새 균주 등록</h3>
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>균주명 (Full Name) *</label>
+          <input type="text" id="reg-name" placeholder="예: Bacillus velezensis KR-01" />
+        </div>
+        <div class="form-group">
+          <label>속명 (Genus) *</label>
+          <input type="text" id="reg-genus" placeholder="예: Bacillus" />
+        </div>
+        <div class="form-group">
+          <label>종명 (Species)</label>
+          <input type="text" id="reg-species" placeholder="예: velezensis" />
+        </div>
+        <div class="form-group">
+          <label>균주 번호 (Strain No.)</label>
+          <input type="text" id="reg-strain-no" placeholder="예: KR-01" />
+        </div>
+        <div class="form-group">
+          <label>Gram 염색</label>
+          <select id="reg-gram">
+            <option value="">선택</option>
+            <option>Gram 양성 (+)</option>
+            <option>Gram 음성 (−)</option>
+            <option>불가 (항산성)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>형태</label>
+          <select id="reg-shape">
+            <option value="">선택</option>
+            <option>간균 (Rod)</option>
+            <option>구균 (Cocci)</option>
+            <option>사상균 (Filamentous)</option>
+            <option>나선균 (Spirilla)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>산소 요구성</label>
+          <select id="reg-oxygen">
+            <option value="">선택</option>
+            <option>호기성</option>
+            <option>혹성 혼기성</option>
+            <option>혹성 혹기성</option>
+            <option>미호기성</option>
+            <option>혼성 미호기성</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>배양 온도</label>
+          <input type="text" id="reg-temp" placeholder="예: 37°C" />
+        </div>
+        <div class="form-group">
+          <label>배지</label>
+          <input type="text" id="reg-medium" placeholder="예: LB Agar" />
+        </div>
+        <div class="form-group">
+          <label>발견일</label>
+          <input type="date" id="reg-date" />
+        </div>
+        <div class="form-group">
+          <label>발견 장소</label>
+          <input type="text" id="reg-location" placeholder="예: 제주도 식수 토양" />
+        </div>
+        <div class="form-group">
+          <label>발견자</label>
+          <input type="text" id="reg-researcher" placeholder="담당 연구자명" />
+        </div>
+        <div class="form-group">
+          <label>GC 함량 (%)</label>
+          <input type="number" id="reg-gc" step="0.1" min="0" max="100" placeholder="예: 46.5" />
+        </div>
+        <div class="form-group">
+          <label>게놈 크기 (kb)</label>
+          <input type="number" id="reg-size" placeholder="예: 4052" />
+        </div>
+        <div class="form-group">
+          <label>상태</label>
+          <select id="reg-status">
+            <option>분석 중</option>
+            <option>실험 진행</option>
+            <option>기탁 완료</option>
+            <option>특허 출원 중</option>
+            <option>보류</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label>메모 / 특이 사항</label>
+          <textarea id="reg-notes" rows="3" placeholder="초기 관실 사항, 분리 배경, 특징 등..."></textarea>
+        </div>
+      </div>
+      <div class="form-actions" style="margin-top:1.5rem">
+        <button class="btn-primary" id="reg-submit-btn">🧫 균주 등록하기</button>
+        <button class="btn-secondary" id="reg-cancel-btn2">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script type="module" src="/src/main.js"></script>
+
+  <!-- SECTION: 연구노트 -->
+  <section id="notes-section" class="section strain-section">
+    <!-- 목록 패널 -->
+    <div id="note-list-panel">
+      <div class="strain-lib-header">
+        <div>
+          <h2>📝 연구노트</h2>
+          <p class="section-subtitle" style="text-align:left;margin-bottom:0">균주별 · 연구자별 연구 과제를 기록하고 관리합니다.</p>
+        </div>
+        <div class="strain-lib-actions">
+          <input type="text" class="search-input" id="note-search" placeholder="제목, 연구자, 키워드 검색..." />
+          <button class="btn-primary" id="new-note-btn">+ 새 연구노트</button>
+        </div>
+      </div>
+      <div class="strain-grid" id="note-list"></div>
+      <div class="empty-state hidden" id="note-list-empty">
+        <div style="font-size:3rem">📝</div>
+        <p>작성된 연구노트가 없습니다.</p>
+        <button class="btn-primary" id="new-note-btn-2">+ 첫 연구노트 작성하기</button>
+      </div>
+    </div>
+    <!-- 상세 패널 -->
+    <div id="note-detail-panel" class="hidden note-full-panel"></div>
+    <!-- 편집 패널 -->
+    <div id="note-edit-panel" class="hidden note-full-panel"></div>
+  </section>
+</body>
+</html>

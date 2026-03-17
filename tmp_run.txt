@@ -1,0 +1,104 @@
+      progressBar.style.width = Math.round(50 + pct * 25) + '%';
+      progressPct.textContent = Math.round(50 + pct * 25) + '%';
+      progressLabel.textContent = `🧬 ${info}`;
+    });
+
+    if (!result) {
+      throw new Error('분석 결과가 없습니다. 서열 길이가 너무 짧을 수 있습니다.');
+    }
+
+    console.log('[OBJETBIO] 분석 완료 | 유전자:', result.geneCount, '| GC:', result.gcContent + '%');
+    setStep('step-analyze', 'complete');
+    setStep('step-map', 'active');
+
+    progressBar.style.width = '80%';
+    progressPct.textContent = '80%';
+    progressLabel.textContent = '🗺️ DNA 지도 생성 중...';
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // ─ 3단계: UI 표시 ─
+    analysisData = result;
+    displayQuickStats(result);
+
+    progressBar.style.width = '100%';
+    progressPct.textContent = '100%';
+    progressLabel.textContent = '✅ 분석 완료!';
+    setStep('step-map', 'complete');
+    setStatus('done', '분석 완료');
+
+    setTimeout(() => {
+      progressContainer.classList.add('hidden');
+      resetSteps();
+      quickStats.classList.remove('hidden');
+      gotoMapContainer.classList.remove('hidden');
+      document.getElementById('nav-map').style.opacity = '1';
+      document.getElementById('nav-stats').style.opacity = '1';
+      buildLegend(mapLegend);
+      console.log('[OBJETBIO] UI 표시 완료');
+    }, 1200);
+
+  } catch (err) {
+    console.error('[OBJETBIO] 오류:', err);
+    setStatus('idle', '오류');
+    progressBar.style.width = '100%';
+    progressBar.style.background = '#ef4444';
+    progressLabel.style.color = '#ef4444';
+    progressLabel.textContent = `❌ ${err.message.split('\n')[0]}`;
+  }
+}
+
+/**
+ * parseDNAFile 비동기 버전 — split() 없이 직접 스캔
+ * 1,000줄마다 렌더링 양보 (소파일도 진행 확인 가능)
+ */
+async function parseDNAFileAsync(text, onProgress) {
+  const MAX_READS = 50000;
+  const MAX_LINES = 400000;
+  const sequences = [];
+  let currentSeq  = null;
+  let lineCount   = 0;
+  let pos         = 0;
+  const totalLen  = text.length;
+  const YIELD_EVERY = 1000; // 1000줄마다 렌더링 양보
+
+  while (pos < totalLen && lineCount < MAX_LINES && sequences.length < MAX_READS) {
+    let nextPos = text.indexOf('\n', pos);
+    if (nextPos === -1) nextPos = totalLen;
+
+    const line = text.substring(pos, nextPos).trim();
+    pos = nextPos + 1;
+    lineCount++;
+
+    if (lineCount % YIELD_EVERY === 0) {
+      onProgress(Math.min(pos / totalLen, 0.99),
+        `${lineCount.toLocaleString()}줄 처리 중 — 서열 ${sequences.length}개 발견`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    if (!line) continue;
+
+    if (line.startsWith('>')) {
+      if (currentSeq && currentSeq.sequence.length > 0) sequences.push(currentSeq);
+      currentSeq = { id: line.slice(1).split(' ')[0], description: line.slice(1), sequence: '' };
+    } else if (line.startsWith('@')) {
+      if (currentSeq && currentSeq.sequence.length > 0) sequences.push(currentSeq);
+      currentSeq = { id: line.slice(1), description: line.slice(1), sequence: '' };
+    } else if (line.startsWith('ORIGIN')) {
+      currentSeq = currentSeq || { id: 'GenBank', description: 'GenBank Sequence', sequence: '' };
+    } else if (line === '+') {
+      // FASTQ 품질 구분선 → 다음 줄(품질 데이터) 건너뜀
+      if (currentSeq && currentSeq.sequence.length > 0) sequences.push(currentSeq);
+      currentSeq = null;
+      const qNext = text.indexOf('\n', pos);
+      pos = (qNext === -1) ? totalLen : qNext + 1;
+      lineCount++;
+    } else if (currentSeq && /^[ACGTNRYSWKMBDHVacgtnryswkmbdhv\s\d]+$/i.test(line)) {
+      const cleaned = line.replace(/[\s\d]/g, '').toUpperCase();
+      if (cleaned.length > 0) currentSeq.sequence += cleaned;
+    }
+  }
+
+  if (currentSeq && currentSeq.sequence.length > 0) sequences.push(currentSeq);
+  onProgress(1, `파싱 완료 — ${sequences.length.toLocaleString()}개 서열`);
+  return sequences;
+}

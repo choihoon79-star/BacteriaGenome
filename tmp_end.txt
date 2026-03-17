@@ -1,0 +1,282 @@
+
+/** 이벤트 루프에 한 번 양보 */
+function tick() { return new Promise(r => setTimeout(r, 0)); }
+
+/** 단계 상태 변경 */
+function setStep(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('active', 'complete', 'error');
+  if (state) el.classList.add(state);
+}
+
+/** 모든 단계 초기화 */
+function resetSteps() {
+  ['step-read','step-decompress','step-parse','step-analyze','step-map']
+    .forEach(id => setStep(id, ''));
+}
+
+
+function displayQuickStats(data) {
+  document.getElementById('stat-length-val').textContent = (data.totalLength / 1000).toFixed(0) + ' kb';
+  document.getElementById('stat-gc-val').textContent     = data.gcContent + '%';
+  document.getElementById('stat-genes-val').textContent  = data.estimatedORFs.toLocaleString();
+  const riskEl = document.getElementById('stat-risk-val');
+  riskEl.textContent = data.resistanceGenes + '개';
+  riskEl.style.color = data.resistanceGenes > 2 ? '#ff4b6e' : data.resistanceGenes > 0 ? '#ffe066' : '#39ff8f';
+
+  // 추정 종(species) 배지 표시 (있을 경우)
+  const subtitle = document.querySelector('.section-subtitle');
+  if (subtitle && data.estimatedOrganism) {
+    subtitle.innerHTML = `FASTA, FASTQ, GenBank 형식의 박테리아 로우데이터를 업로드하여<br/>인터랙티브 DNA 지도와 항생제 내성·독성 인자 정보를 확인하세요.\n<span style="color:#00ffc8;font-size:0.8rem;font-family:monospace">추정 분류군: ${data.estimatedOrganism}</span>`;
+  }
+}
+
+// ─── DNA Map ───
+function renderMap() {
+  if (!analysisData) return;
+  infoPlaceholder.classList.remove('hidden');
+  geneDetail.classList.add('hidden');
+
+  if (currentView === 'circular') {
+    initDNAMap(svgEl, analysisData, onGeneSelect);
+  } else {
+    switchToLinear(svgEl, analysisData);
+    // re-attach click
+    setTimeout(() => initLinearClickHandlers(), 100);
+  }
+}
+
+function initLinearClickHandlers() {
+  // Linear mode uses same SVG event delegation via dna-map.js
+  import('./dna-map.js').then(m => {
+    m.switchToLinear(svgEl, analysisData);
+  });
+}
+
+viewModeSelect?.addEventListener('change', () => {
+  currentView = viewModeSelect.value;
+  renderMap();
+});
+
+zoomInBtn?.addEventListener('click', () => {
+  const transform = new DOMMatrix(svgEl.getAttribute('transform') || '');
+  svgEl.style.transform = '';
+  // Implemented via D3 zoom — proxy events
+  const event = new WheelEvent('wheel', { deltaY: -300, bubbles: true });
+  svgEl.dispatchEvent(event);
+});
+
+resetBtn?.addEventListener('click', () => {
+  const svg = document.getElementById('dna-map-svg');
+  if (svg.__resetZoom) svg.__resetZoom();
+});
+
+// ─── Gene Info Panel ───
+const expressionColors = {
+  HIGH: '#39ff8f',
+  MED:  '#ffe066',
+  LOW:  '#ff4b6e',
+};
+
+const typeEmojis = {
+  essential:             '🟢',  // 필수 유전자
+  antibiotic_resistance: '🚨',  // 항생제 내성
+  virulence:             '⚠️',  // 독성 인자
+  metabolism:            '⚙️',  // 대사 유전자
+  rrna:                  '🔬',  // rRNA 오페론
+  mobile_element:        '🧬',  // 이동성 인자
+};
+
+function onGeneSelect(gene) {
+  infoPlaceholder.classList.add('hidden');
+  geneDetail.classList.remove('hidden');
+
+  const color = gene.color || '#00ffc8';
+  const badge = document.getElementById('gene-badge');
+  badge.style.background = color + '22';
+  badge.style.border = `2px solid ${color}`;
+  badge.textContent = typeEmojis[gene.type] || '🧬';
+
+  document.getElementById('gene-name').textContent = gene.name;
+  document.getElementById('gene-name').style.color = color;
+
+  const typeTag = document.getElementById('gene-type');
+  typeTag.textContent = gene.fullName;
+  typeTag.style.background = color + '22';
+  typeTag.style.color = color;
+
+  document.getElementById('gene-desc').textContent = gene.description;
+  document.getElementById('gene-start').textContent = gene.startPos.toLocaleString();
+  document.getElementById('gene-end').textContent   = gene.endPos.toLocaleString();
+  document.getElementById('gene-length').textContent = gene.geneLength.toLocaleString();
+  document.getElementById('gene-expression').textContent = gene.expressionLabel;
+  document.getElementById('gene-expression').style.color = expressionColors[gene.expressionLabel] || '#fff';
+
+  const exprPct = Math.round(gene.expressionLevel * 100);
+  document.getElementById('expr-pct').textContent = exprPct + '%';
+  const fill = document.getElementById('expr-bar-fill');
+  fill.style.width = '0%';
+  fill.style.background = `linear-gradient(90deg, ${color}, ${color}88)`;
+  setTimeout(() => fill.style.width = exprPct + '%', 50);
+
+  document.getElementById('rna-info').textContent = gene.rna;
+
+  // 서식 박테리아 표시 (organism-info 패널)
+  const orgInfoEl = document.getElementById('organism-info');
+  if (orgInfoEl) orgInfoEl.textContent = gene.organism || '-';
+
+  document.getElementById('detail-page-btn').onclick = () => openGeneModal(gene);
+}
+
+// ─── Gene Modal ───
+function openGeneModal(gene) {
+  const color = gene.color || '#00ffc8';
+  modalContent.innerHTML = `
+    <div class="modal-gene-title" style="color:${color}">${gene.name}</div>
+    <div class="modal-gene-subtitle">${gene.fullName} | ${typeEmojis[gene.type]} ${gene.type.replace('_', ' ')}</div>
+
+    <div class="modal-section">
+      <h4>기본 정보</h4>
+      <div class="modal-grid">
+        <div class="modal-stat">
+          <div class="modal-stat-label">염색체</div>
+          <div class="modal-stat-value" style="color:${color}">Chr ${gene.chromosome}</div>
+        </div>
+        <div class="modal-stat">
+          <div class="modal-stat-label">방향</div>
+          <div class="modal-stat-value">${gene.strand === '+' ? '정방향 (5′→3′)' : '역방향 (3′→5′)'}</div>
+        </div>
+        <div class="modal-stat">
+          <div class="modal-stat-label">시작 위치</div>
+          <div class="modal-stat-value">${gene.startPos.toLocaleString()} bp</div>
+        </div>
+        <div class="modal-stat">
+          <div class="modal-stat-label">유전자 길이</div>
+          <div class="modal-stat-value">${gene.geneLength.toLocaleString()} bp</div>
+        </div>
+        <div class="modal-stat">
+          <div class="modal-stat-label">발현 수준</div>
+          <div class="modal-stat-value" style="color:${expressionColors[gene.expressionLabel]}">${Math.round(gene.expressionLevel * 100)}% (${gene.expressionLabel})</div>
+        </div>
+        <div class="modal-stat">
+          <div class="modal-stat-label">유전자 유형</div>
+          <div class="modal-stat-value">${gene.type.replace(/_/g,' ')}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <h4>유전자 기능</h4>
+      <ul class="function-list">
+        ${gene.functions.map(f => `<li>${f}</li>`).join('')}
+      </ul>
+    </div>
+
+    <div class="modal-section">
+      <h4>RNA 전사 과정</h4>
+      <div class="rna-info">${gene.rna}</div>
+    </div>
+
+    <div class="modal-section">
+      <h4>유전자 상세 설명</h4>
+      <p style="font-size:0.875rem;color:#7a87a8;line-height:1.8">${gene.description}</p>
+    </div>
+
+    <div class="modal-section">
+      <h4>샘플 서열 (5′ 말단)</h4>
+      <div class="sequence-display" id="modal-seq-display">서열 생성 중...</div>
+    </div>
+  `;
+
+  modalOverlay.classList.remove('hidden');
+
+  // Generate synthetic sequence snippet
+  setTimeout(() => {
+    const bases = 'ATGCATGCNNATGCGCATTAGCGATCGCGATCGATCGATCGCGATCGATCGATCGATCG';
+    let seq = '';
+    for (let i = 0; i < 180; i++) {
+      if (i > 0 && i % 10 === 0) seq += ' ';
+      seq += bases[Math.floor(Math.random() * bases.length)];
+    }
+    const display = document.getElementById('modal-seq-display');
+    if (display) display.textContent = seq;
+  }, 100);
+}
+
+modalClose?.addEventListener('click', () => modalOverlay.classList.add('hidden'));
+modalOverlay?.addEventListener('click', (e) => {
+  if (e.target === modalOverlay) modalOverlay.classList.add('hidden');
+});
+
+// ─── Stats ───
+function renderStats() {
+  if (!analysisData) return;
+  buildBaseCompositionChart(document.getElementById('base-composition-chart'), analysisData.baseComposition);
+  buildGeneTypeChart(document.getElementById('gene-type-chart'), analysisData.detectedGenes);
+  buildExpressionChart(document.getElementById('expression-chart'), analysisData.detectedGenes);
+  buildDensityChart(document.getElementById('density-chart'), analysisData.detectedGenes);
+}
+
+// ─── Status Helper ───
+function setStatus(state, text) {
+  statusDot.className = 'status-dot ' + state;
+  statusText.textContent = text;
+}
+
+// ─── Background DNA Helix Animation ───
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+let frame = 0;
+function drawBackground() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const cols = Math.ceil(canvas.width / 120) + 1;
+
+  for (let col = 0; col < cols; col++) {
+    const x = col * 120;
+    const offset = (frame * 0.5 + col * 40) % (canvas.height + 80);
+
+    for (let i = 0; i < 14; i++) {
+      const yBase = (-offset + i * 60) % (canvas.height + 80) - 40;
+      const t = (yBase + frame * 0.5) / 60;
+
+      // Strand 1
+      const x1 = x + Math.cos(t) * 22;
+      const x2 = x + Math.cos(t + Math.PI) * 22;
+
+      ctx.beginPath();
+      ctx.arc(x1, yBase, 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(27,138,90,0.6)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(x2, yBase, 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,137,123,0.5)';
+      ctx.fill();
+
+      // Rung
+      ctx.beginPath();
+      ctx.moveTo(x1, yBase);
+      ctx.lineTo(x2, yBase);
+      ctx.strokeStyle = 'rgba(27,138,90,0.1)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+  frame++;
+  requestAnimationFrame(drawBackground);
+}
+drawBackground();
+
+// ─── Init ───
+setStatus('idle', '대기 중');
+document.getElementById('nav-map').style.opacity = '0.4';
+document.getElementById('nav-stats').style.opacity = '0.4';
