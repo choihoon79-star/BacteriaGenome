@@ -357,7 +357,8 @@ async function decompressGzip(file) {
           done = res.done;
           value = res.value;
         } catch (e) {
-          if (e.message && e.message.toLowerCase().includes('junk found after end')) {
+          const msg = e.message ? e.message.toLowerCase() : '';
+          if (msg.includes('junk found after end') || msg.includes('extra bytes past the end') || msg.includes('trailing data')) {
             console.warn('[OBJETBIO] 압축 해제 중 쓰레기 값(trailing junk) 무시 처리:', e.message);
             // 압축 해제된 데이터가 이미 있으면 파일이 끝난 것으로 간주
             if (textResult.length > 0) {
@@ -666,7 +667,6 @@ async function startBaktaAnalysis(fastaText, strainName) {
         renderMap();
         renderWholeMap();
       }
-      
       if (statusEl) {
         statusEl.textContent = 'Bakta 정밀 분석 완료';
         setTimeout(() => { if (statusEl.textContent === 'Bakta 정밀 분석 완료') statusEl.textContent = '분석 완료'; }, 3000);
@@ -674,10 +674,19 @@ async function startBaktaAnalysis(fastaText, strainName) {
     }
 
   } catch (err) {
-    console.warn('[BAKTA] 정밀 분석 실패 (로컬 데이터 유지):', err.message);
-    updateBaktaStatusUI('error', 'Bakta 서버 연결 실패');
-    if (statusEl && statusEl.textContent.includes('Bakta')) {
-      statusEl.textContent = '분석 완료 (로컬)';
+    console.error('[BAKTA] 상세 에러 로그:', err);
+    console.warn('[BAKTA] 정밀 분석 실패 원인:', err.message);
+    
+    let errorMsg = 'Bakta 서버 연결 실패';
+    if (err.message.includes('Failed to fetch')) {
+      errorMsg = '서버 연결 차단 (HTTPS/주소 확인)';
+    } else if (err.message.includes('타임아웃') || err.message.includes('timeout')) {
+      errorMsg = '연결 시간 초과 (서버 깨우기 필요)';
+    }
+
+    updateBaktaStatusUI('error', errorMsg);
+    if (statusEl) {
+      statusEl.textContent = errorMsg;
     }
   }
 }
